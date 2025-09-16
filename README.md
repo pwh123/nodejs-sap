@@ -1,5 +1,47 @@
 # Auto-SAP应用部署说明文档
 
+## 修改
+
+### 所需 GitHub Secrets 完整列表
+
+以下是这个工作流能够成功运行所需要设置的全部 Secrets。请在您仓库的 Settings > Secrets and variables > Actions 页面中添加它们。
+
+**通用凭证** (所有区域部署时都会使用)
+
+- EMAIL: 用于登录 Cloud Foundry 的邮箱地址。
+- PASSWORD: 用于登录 Cloud Foundry 的密码。
+
+**通用应用配置** (所有区域部署时都会使用)
+
+- NEZHA_SERVER: 哪吒监控的服务器地址（域名或IP）。
+- NEZHA_PORT: 哪吒监控的服务器端口，v1不需要。
+- NEZHA_KEY: 连接到哪吒监控的密钥。
+- SUB_PATH: 节点订阅路径。
+- CFIP: Cloudflare 优选 IP 或域名。
+- CFPORT: Cloudflare 优选端口。
+- CHAT_ID: 用于接收通知的 Telegram Chat ID。
+- BOT_TOKEN: 用于发送通知的 Telegram Bot Token。
+
+**新加坡 (SG) 区域特定配置** (仅在选择 SG 区域时使用)
+
+- SG_ORG: 新加坡区域的 Cloud Foundry Organization (组织) 名称。
+- SG_SPACE: 新加坡区域的 Cloud Foundry Space (空间) 名称。
+- UUID_SG: 用于新加坡区域的 UUID。
+- ARGO_DOMAIN_SG: 用于新加坡区域的 Argo Tunnel 域名。
+- ARGO_AUTH_SG: 用于新加坡区域的 Argo Tunnel 认证信息/Token。
+
+**美国 (US) 区域特定配置** (仅在选择 US 区域时使用)
+
+- US_ORG: 美国区域的 Cloud Foundry Organization (组织) 名称。
+- US_SPACE: 美国区域的 Cloud Foundry Space (空间) 名称。
+- UUID_US: 用于美国区域的 UUID。
+- ARGO_DOMAIN_US: 用于美国区域的 Argo Tunnel 域名。
+- ARGO_AUTH_US: 用于美国区域的 Argo Tunnel 认证信息/Token。
+
+-------
+
+> **以下为老王原版说明**
+
 ## 概述
 
 本项目是自动部署argo节点到SAP Cloud Foundry平台，自动保活的方案
