@@ -84,7 +84,7 @@ jobs:
           SPACE_NAME="${{ secrets.US_SPACE }}"
         fi
         
-        cf login -a ${{ env.CF_API }} -u "${{ secrets.EMAIL }}" -p "${{ secrets.PASSWORD }}" -o "$ORG_NAME" -s "$SPACE_NAME""
+        cf login -a ${{ env.CF_API }} -u "${{ secrets.EMAIL }}" -p "${{ secrets.PASSWORD }}" -o "$ORG_NAME" -s "$SPACE_NAME"
 
     - name: Deploy application
       run: |
