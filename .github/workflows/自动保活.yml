@@ -161,7 +161,7 @@ jobs:
           echo "区域 SG 中所有应用的最终状态:"
           cf apps
 
-  restart-us-apps:  # 修正：确保与上一个任务缩进一致（同级）
+  restart-us-apps-rey:  # 修正：确保与上一个任务缩进一致（同级）
     runs-on: ubuntu-latest
     name: Restart US Apps
     if: always()
