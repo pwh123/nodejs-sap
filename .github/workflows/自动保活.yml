@@ -20,9 +20,7 @@ jobs:
             echo "收到来自 Argo 隧道的下线通知，开始执行自动恢复部署流程..."
           elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             echo "工作流被手动触发，开始执行部署..."
-          else
-            echo "工作流由计划任务触发，开始执行部署..."
-          fi
+         fi
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Install CF CLI
