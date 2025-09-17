@@ -147,7 +147,8 @@ jobs:
           done
 
       - name: Verify US status
-        run: cf apps
+        run: | 
+          apps=$(cf apps | awk 'NR>3 {print $1}'
           for app in $apps; do
             echo "正在重启应用: $app"
             cf restart "$app"
