@@ -1,4 +1,4 @@
-name: 自动部署 SAP all
+name: 自动部署 SAP
 
 on:
   workflow_dispatch:  # 只允许手动触发
