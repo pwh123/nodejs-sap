@@ -26,7 +26,7 @@ on:
         default: ''
 
 env:
-  DOCKER_IMAGE: ghcr.io/eooce/nodejs-sbx:latest
+  DOCKER_IMAGE: ghcr.io/uncleluogithub/mous:latest
   MEMORY: 512M
   FIXED_STR: "sapfixd2"  # 6位固定字母（可自定义修改）
 
