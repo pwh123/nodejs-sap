@@ -89,7 +89,7 @@ jobs:
         cf set-env ${{ env.APP_NAME }} BOT_TOKEN "${{ secrets.BOT_TOKEN }}"
         
         # 新加坡区域特定变量
-        cf set-env ${{ env.APP_NAME }} UUID "${{ secrets.UUID_SG }}"
+        cf set-env ${{ env.APP_NAME }} UUID "${{ secrets.UUID_SG2 }}"
         cf set-env ${{ env.APP_NAME }} ARGO_DOMAIN "${{ secrets.ARGO_DOMAIN_SG2 }}"
         cf set-env ${{ env.APP_NAME }} ARGO_AUTH "${{ secrets.ARGO_AUTH_SG2 }}"
         cf set-env ${{ env.APP_NAME }} TUIC_PORT"${{ secrets.TUIC_PORT_SG2 }}"
