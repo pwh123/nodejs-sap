@@ -1,0 +1,153 @@
+name: 自动保活 SAP
+on:
+  workflow_dispatch:
+    inputs:
+      serverName:  # 手动触发时指定服务器名（如 asg/aus）
+        description: '指定需要处理的服务器名（如 asg 或 aus）'
+        required: false
+        type: string
+  repository_dispatch:
+    types: [argo-tunnel-down]
+
+jobs:
+  determine-region:
+    runs-on: ubuntu-latest
+    outputs:
+      region: ${{ steps.get-region.outputs.region }}  # 输出目标区域（sg/us/all）
+    steps:
+      - name: 解析目标区域（根据服务器名判断）
+        id: get-region
+        run: |
+          # 1. 从事件中获取服务器名（自动触发从 client_payload，手动触发从 input）
+          if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+            # 自动触发时，从事件中获取服务器名（对应 Worker 发送的 serverName）
+            serverName="${{ github.event.client_payload.serverName }}"
+          else
+            # 手动触发时，从输入参数获取服务器名
+            serverName="${{ github.event.inputs.serverName }}"
+          fi
+          echo "检测到的服务器名: $serverName"
+
+          # 2. 服务器名与区域的映射（与 Worker 中的 servers 对应）
+          if [[ "$serverName" == "asg" ]]; then
+            echo "region=sg" >> $GITHUB_OUTPUT
+          elif [[ "$serverName" == "aus" ]]; then
+            echo "region=us" >> $GITHUB_OUTPUT
+          else
+            # 未指定服务器名或不匹配时，默认重启所有区域
+            echo "region=all" >> $GITHUB_OUTPUT
+          fi
+
+  restart-sg-apps:
+    needs: determine-region
+    if: needs.determine-region.outputs.region == 'sg' || needs.determine-region.outputs.region == 'all'
+    runs-on: ubuntu-latest
+    name: Restart SG Apps
+    continue-on-error: true
+    steps:
+      - name: Check Trigger Event
+        run: |
+          echo "触发服务器名: ${{ github.event.client_payload.serverName || github.event.inputs.serverName || '未指定' }}"
+          echo "目标区域: SG"
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install CF CLI
+        run: |
+          wget -q -O - https://packages.cloudfoundry.org/debian/cli.cloudfoundry.org.key | sudo apt-key add -
+          echo "deb https://packages.cloudfoundry.org/debian stable main" | sudo tee /etc/apt/sources.list.d/cloudfoundry-cli.list
+          sudo apt-get update
+          sudo apt-get install -y cf8-cli
+
+      - name: Determine CF API endpoint
+        run: |
+          echo "CF_API=https://api.cf.ap21.hana.ondemand.com" >> $GITHUB_ENV
+          echo "使用API端点: $CF_API (区域: SG)"
+
+      - name: Login to Cloud Foundry
+        run: |
+          cf login -a ${{ env.CF_API }} -u "${{ secrets.EMAIL }}" -p "${{ secrets.PASSWORD }}" -o "${{ secrets.SG_ORG }}" -s "${{ secrets.SPACE }}"
+
+      - name: Get all applications
+        id: get-sg-apps
+        run: |
+          apps=$(cf apps | awk 'NR>3 {print $1}' | grep -v '^$')
+          echo "发现的应用:"
+          echo "$apps"
+          echo "apps<<EOF" >> $GITHUB_OUTPUT
+          echo "$apps" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Restart SG applications
+        run: |
+          apps="${{ steps.get-sg-apps.outputs.apps }}"
+          if [ -z "$apps" ]; then
+            echo "SG区域未找到应用"
+            exit 0
+          fi
+          for app in $apps; do
+            echo "重启SG应用: $app"
+            cf restart "$app"
+            sleep 20
+          done
+
+      - name: Verify SG status
+        run: cf apps
+
+  restart-us-apps:
+    needs: determine-region
+    if: needs.determine-region.outputs.region == 'us' || needs.determine-region.outputs.region == 'all'
+    runs-on: ubuntu-latest
+    name: Restart US Apps
+    continue-on-error: true
+    steps:
+      - name: Check Trigger Event
+        run: |
+          echo "触发服务器名: ${{ github.event.client_payload.serverName || github.event.inputs.serverName || '未指定' }}"
+          echo "目标区域: US"
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install CF CLI
+        run: |
+          wget -q -O - https://packages.cloudfoundry.org/debian/cli.cloudfoundry.org.key | sudo apt-key add -
+          echo "deb https://packages.cloudfoundry.org/debian stable main" | sudo tee /etc/apt/sources.list.d/cloudfoundry-cli.list
+          sudo apt-get update
+          sudo apt-get install -y cf8-cli
+
+      - name: Determine CF API endpoint
+        run: |
+          echo "CF_API=https://api.cf.us10-001.hana.ondemand.com" >> $GITHUB_ENV
+          echo "使用API端点: $CF_API (区域: US)"
+
+      - name: Login to Cloud Foundry
+        run: |
+          cf login -a ${{ env.CF_API }} -u "${{ secrets.EMAIL }}" -p "${{ secrets.PASSWORD }}" -o "${{ secrets.US_ORG }}" -s "${{ secrets.SPACE }}"
+
+      - name: Get all applications
+        id: get-us-apps
+        run: |
+          apps=$(cf apps | awk 'NR>3 {print $1}' | grep -v '^$')
+          echo "发现的应用:"
+          echo "$apps"
+          echo "apps<<EOF" >> $GITHUB_OUTPUT
+          echo "$apps" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Restart US applications
+        run: |
+          apps="${{ steps.get-us-apps.outputs.apps }}"
+          if [ -z "$apps" ]; then
+            echo "US区域未找到应用"
+            exit 0
+          fi
+          for app in $apps; do
+            echo "重启US应用: $app"
+            cf restart "$app"
+            sleep 20
+          done
+
+      - name: Verify US status
+        run: cf apps
