@@ -39,7 +39,7 @@ env:
   IMAGE1: ghcr.io/eooce/nodejs-argo:main
   IMAGE2: ghcr.io/uncleluogithub/mous:latest
   IMAGE3: ghcr.io/eooce/node-ws:main
-  IMAGE4: lscr.io/linuxserver/firefox:latest  # 火狐镜像
+  IMAGE4: jlesage/firefox  # 火狐镜像
   MEMORY: 512M
   BASE_PREFIX_SG: "sgsapfixd"  # 新加坡基础前缀
   BASE_PREFIX_US: "ussapfixd"  # 美国基础前缀
