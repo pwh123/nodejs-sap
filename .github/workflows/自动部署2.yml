@@ -40,7 +40,7 @@ env:
   IMAGE2: ghcr.io/uncleluogithub/mous:latest
   IMAGE3: ghcr.io/eooce/node-ws:main
   IMAGE4: jlesage/firefox  # 火狐镜像
-  MEMORY: 1024M
+  MEMORY: 2048M
   BASE_PREFIX_SG: "sgsapfixd"  # 新加坡基础前缀
   BASE_PREFIX_US: "ussapfixd"  # 美国基础前缀
   # Firefox必要环境变量默认值（可通过Secrets覆盖）
