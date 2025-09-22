@@ -1,4 +1,4 @@
-name: 自动部署 SAP
+name: 自动部署 SAP2
 
 on:
   workflow_dispatch:
