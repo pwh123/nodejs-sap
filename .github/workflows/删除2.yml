@@ -1,0 +1,121 @@
+name: 删除SAP应用2（前缀+后缀/全部）
+on:
+  workflow_dispatch:
+    inputs:
+      region:
+        description: '选择区域 （SG 或 US）'
+        required: true
+        default: 'SG'
+        type: choice
+        options:
+          - 新加坡
+          - 美国
+      delete_type:
+        description: '删除类型'
+        required: true
+        default: 'prefix'
+        type: choice
+        options:
+          - prefix  # 按前缀+后缀删除（无后缀则删除基础前缀）
+          - all     # 删除区域内所有应用
+      app_suffix:
+        description: '应用后缀（仅“按前缀”时有效，留空则删除基础前缀应用）'
+        required: false
+        default: ''
+      confirmation:
+        description: '此操作不可逆！请输入 “aaa” 来执行。'
+        required: true
+        type: string
+
+env:
+  BASE_PREFIX_SG: "sgsapfixd"  # 新加坡基础前缀
+  BASE_PREFIX_US: "ussapfixd"  # 美国基础前缀
+
+jobs:
+  delete-apps:
+    runs-on: ubuntu-latest
+    name: 从区域 ${{ github.event.inputs.region }} 删除应用
+    steps:
+      - name: 验证操作确认
+        run: |
+          if [ "${{ github.event.inputs.confirmation }}" != "aaa" ]; then
+            echo "错误：输入不匹配 'aaa'，操作已取消。"
+            exit 1
+          fi
+
+      - name: 安装 CF CLI
+        run: |
+          wget -q -O - https://packages.cloudfoundry.org/debian/cli.cloudfoundry.org.key | sudo apt-key add -
+          echo "deb https://packages.cloudfoundry.org/debian stable main" | sudo tee /etc/apt/sources.list.d/cloudfoundry-cli.list
+          sudo apt-get update
+          sudo apt-get install -y cf8-cli
+
+      - name: 设置区域相关变量
+        run: |
+          # 注意：这里需要将“新加坡”“美国”映射为SG/US，否则后续变量会出错
+          if [ "${{ github.event.inputs.region }}" = "新加坡" ]; then
+            echo "CF_API=https://api.cf.ap21.hana.ondemand.com" >> $GITHUB_ENV
+            echo "BASE_PREFIX=${{ env.BASE_PREFIX_SG }}" >> $GITHUB_ENV
+            echo "TARGET_APP=${{ env.BASE_PREFIX_SG }}${{ github.event.inputs.app_suffix }}" >> $GITHUB_ENV
+            echo "操作区域：新加坡(SG)"
+          else
+            echo "CF_API=https://api.cf.us10-001.hana.ondemand.com" >> $GITHUB_ENV
+            echo "BASE_PREFIX=${{ env.BASE_PREFIX_US }}" >> $GITHUB_ENV
+            echo "TARGET_APP=${{ env.BASE_PREFIX_US }}${{ github.event.inputs.app_suffix }}" >> $GITHUB_ENV
+            echo "操作区域：美国(US)"
+          fi
+
+      - name: 登录并选择组织和空间
+        run: |
+          cf login -a ${{ env.CF_API }} -u "${{ secrets.EMAIL }}" -p "${{ secrets.PASSWORD }}"
+          SELECTED_ORG=$(cf orgs | awk 'NR>3 {print $1; exit}')
+          if [ -z "$SELECTED_ORG" ]; then 
+            echo "错误：未找到可用组织"; 
+            exit 1; 
+          fi
+          cf target -o "$SELECTED_ORG"
+          SELECTED_SPACE=$(cf spaces | awk 'NR>3 {print $1; exit}')
+          if [ -z "$SELECTED_SPACE" ]; then 
+            echo "错误：未找到可用空间"; 
+            exit 1; 
+          fi
+          cf target -s "$SELECTED_SPACE"
+          echo "当前目标：组织: $SELECTED_ORG / 空间: $SELECTED_SPACE"
+
+      - name: 执行删除操作
+        run: |
+          if [ "${{ github.event.inputs.delete_type }}" = "prefix" ]; then
+            # 按前缀+后缀删除
+            echo "目标应用：${{ env.TARGET_APP }}"
+            # 检查应用是否存在（精确匹配第一列）
+            app_exists=$(cf apps | awk -v target="${{ env.TARGET_APP }}" '$1 == target {print $1}' | wc -l)
+            if [ "$app_exists" -eq 0 ]; then
+              echo "错误：未找到应用 ${{ env.TARGET_APP }}"
+              exit 1
+            fi
+            # 执行删除
+            cf delete -f -r "${{ env.TARGET_APP }}"
+            echo "应用 ${{ env.TARGET_APP }} 删除成功"
+          else
+            # 删除区域内所有应用
+            apps=$(cf apps | awk 'NR>3 {print $1}')
+            if [ -z "$apps" ]; then
+              echo "区域 ${{ github.event.inputs.region }} 中未找到任何应用，无需删除。"
+              exit 0
+            fi
+            echo "发现以下应用，将全部删除:"
+            echo "$apps"
+            # 循环删除
+            for app in $apps; do
+              echo "----------------------------------------"
+              echo "正在删除应用: $app"
+              cf delete -f -r "$app"
+              echo "应用 $app 删除成功。"
+            done
+          fi
+
+      - name: 最终验证
+        run: |
+          echo "----------------------------------------"
+          echo "删除操作完成。当前区域剩余应用："
+          cf apps
