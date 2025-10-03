@@ -1,0 +1,111 @@
+名称： 删除SAP应用（前缀+后缀/全部）
+
+在：
+  workflow_dispatch：
+    输入：
+      地区：
+        描述： '选择区域 （SG 或 US）'
+        必需：true
+        默认值：“SG”
+        类型：选择
+        选项：
+          - 新加坡
+          - 我们
+      delete_type：
+        描述： '删除类型'
+        必需：true
+        默认值：“前缀”
+        类型：选择
+        选项：
+          - prefix  # 按前缀+后缀删除（无后缀则删除基础前缀）
+          - all     # 删除区域内所有应用
+      app_suffix：
+        description： '应用后缀（仅“按前缀”时有效，留空则删除基础前缀应用）'
+        必需：false
+        默认值：''
+      确认：
+        description： '此作不可逆！请输入 “aaa” 来执行。'
+        必需：true
+        类型：字符串
+
+环境：
+  BASE_PREFIX_SG： “sgsapfixd” # 新加坡基础前缀
+  BASE_PREFIX_US： “ussapfixd” # 美国基础前缀
+
+职位：
+  delete-apps：
+    运行：ubuntu-latest
+    name： 从区域 ${{ github.event.inputs.region }} 删除应用
+
+    步骤：
+    - 名称： 验证作确认
+      运行： |
+if [ “${{ github.event.inputs.confirmation }}” ！= “aaa” ];然后
+echo “错误：输入不匹配 'aaa'，作已取消。"
+1号出口
+菲
+    - 名称：安装 CF CLI
+      运行： |
+wget -q -O - https://packages.cloudfoundry.org/debian/cli.cloudfoundry.org.key |sudo apt-key 添加 -
+echo “deb https://packages.cloudfoundry.org/debian stable main” |sudo tee /etc/apt/sources.list.d/cloudfoundry-cli.list
+sudo apt-get 更新
+sudo apt-get 安装 -y cf8-cli
+    - name： 设置区域相关变量
+      运行： |
+if [ “${{ github.event.inputs.region }}” = “SG” ];然后
+回声 “CF_API=https：//api.cf.ap21.hana.ondemand.com” >> $GITHUB_ENV
+echo “BASE_PREFIX=${{ env.BASE_PREFIX_SG }}“ >> $GITHUB_ENV
+echo “TARGET_APP=${{ env.BASE_PREFIX_SG }}${{ github.event.inputs.app_suffix }}“ >> $GITHUB_ENV
+echo “作区域：新加坡（SG）”
+还
+回声 “CF_API=https：//api.cf.us10-001.hana.ondemand.com” >> $GITHUB_ENV
+echo “BASE_PREFIX=${{ env.BASE_PREFIX_US }}“ >> $GITHUB_ENV
+echo “TARGET_APP=${{ env.BASE_PREFIX_US }}${{ github.event.inputs.app_suffix }}“ >> $GITHUB_ENV
+echo “作区域：美国（US）”
+菲
+    - 名称： 登录并选择组织和空间
+      运行： |
+cf login -a ${{ env.CF_API }} -u “${{ secrets.电子邮件 }}“ -p ”${{ 机密。密码 }}”
+SELECTED_ORG=$（cf orgs | awk 'NR>3 {print $1; exit}'）
+如果 [ -z “$SELECTED_ORG” ];然后回声“错误：未找到可用组织”;1号出口;菲
+cf target -o “$SELECTED_ORG”
+SELECTED_SPACE=$（cf spaces | awk 'NR>3 {print $1; exit}'）
+if [ -z “$SELECTED_SPACE” ];然后回声“错误：未找到可用空间”;1号出口;菲
+cf target -s “$SELECTED_SPACE”
+echo “当前目标：组织： $SELECTED_ORG / 空间： $SELECTED_SPACE”
+    - 名称： 执行删除作
+      运行： |
+if [ “${{ github.event.inputs.delete_type }}” = “前缀” ];然后
+# 按前缀+后缀删除
+echo “目标应用：${{ env.TARGET_APP }}”
+# 检查应用是否存在
+app_exists=$（cf apps | grep -w “${{ env.TARGET_APP }}“ |wc -l）
+如果 [ “$app_exists” -eq 0 ];然后
+echo “错误：未找到应用 ${{ env.TARGET_APP }}”
+1号出口
+菲
+# 执行删除
+cf delete -f -r “${{ 环境。TARGET_APP }}”
+echo “应用 ${{ env.TARGET_APP }} 删除成功”
+还
+# 删除区域内所有应用
+apps=$（cf apps | awk 'NR>3 {print $1}'）
+如果 [ -z “$apps” ];然后
+echo “区域 ${{ github.event.inputs.region }} 中未找到任何应用，无需删除。"
+出口 0
+菲
+echo “发现以下应用，将全部删除：”
+回声“$apps”
+# 循环删除
+用于$apps中的应用程序;做
+回声“----------------------------------------”
+echo “正在删除应用： $app”
+cf delete -f -r “$app”
+echo “应用 $app 删除成功。"
+做
+菲
+    - 名称： 最终验证
+      运行： |
+回声“----------------------------------------”
+echo “删除作完成。当前区域剩余应用："
+CF 应用程序
