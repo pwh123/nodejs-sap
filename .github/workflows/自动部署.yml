@@ -36,7 +36,7 @@ on:
 
 env:
   # 镜像地址映射（按序号对应）
-  IMAGE1: ghcr.io/eooce/nodejs-argo:main
+  IMAGE1: ghcr.io/eooce/nodejs-argo:latest
   IMAGE2: ghcr.io/uncleluogithub/mous:latest
   IMAGE3: ghcr.io/eooce/node-ws:main
   IMAGE4: ghcr.io/eooce/goxhttp:latest  # 可替换为实际镜像地址
