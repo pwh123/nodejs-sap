@@ -1,9 +1,6 @@
 name: 自动部署 SAP
 
 on:
-  name: 自动部署 SAP2
-
-on:
   workflow_dispatch:  # 只允许手动触发
     inputs:
       environment:
