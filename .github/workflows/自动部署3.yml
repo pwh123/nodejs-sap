@@ -1,4 +1,4 @@
-name: 自动部署 SAP3
+name: 自动部署 SAP
 on:
   workflow_dispatch:
     inputs:
@@ -13,12 +13,12 @@ on:
       regions:
         description: '选择部署区域（可多选）'
         required: true
-        default: 'sg,us'
+        default: 'sg,us'  # 默认全选
         type: choice
         options:
-          - sg,us
-          - sg
-          - us
+          - sg,us  # 全部区域
+          - sg     # 仅新加坡
+          - us     # 仅美国
 
 env:
   IMAGE: ghcr.io/pwh123/nodejs:main
@@ -26,9 +26,7 @@ env:
   APP_NAME_SG: "sgsapfixd"
   APP_NAME_US: "ussapfixd"
   TARGET_SPACE: "dev"
-  ORG_MATCH_PATTERN: "trial|prod"
-  # 新增：默认组织名前缀（含环境标识）
-  DEFAULT_ORG_PREFIX: "sap-deploy-${{ github.event.inputs.environment }}"
+  NEW_ORG_NAME: "sap-deploy-org"  # 新组织名称
 
 jobs:
   deploy_selected_regions:
@@ -44,24 +42,132 @@ jobs:
           echo "deb https://packages.cloudfoundry.org/debian stable main" | sudo tee /etc/apt/sources.list.d/cloudfoundry-cli.list
           sudo apt-get update && sudo apt-get install -y cf8-cli
 
-      # 新加坡区域部署（含自动创建组织逻辑）
+      # 新加坡区域：删除旧组织（兼容无-r参数版本）-> 创建新组织 -> 部署
       - name: 部署新加坡区域
         id: deploy_sg
-        timeout-minutes: 5
+        timeout-minutes: 10
         continue-on-error: true
         if: contains(github.event.inputs.regions, 'sg')
         run: |
           CF_API="https://api.cf.ap21.hana.ondemand.com"
           APP_NAME="${{ env.APP_NAME_SG }}"
-          # 区域专属组织名（避免跨区域冲突）
-          DEFAULT_ORG="${{ env.DEFAULT_ORG_PREFIX }}-sg"
+          NEW_ORG="${{ env.NEW_ORG_NAME }}-sg"
           
           echo "登录新加坡API端点..."
           cf login -a "$CF_API" -u "${{ secrets.EMAIL }}" -p "${{ secrets.PASSWORD }}"
           
-          echo "📋 新加坡区域可访问组织："
-          cf orgs
+          # 1. 先删除组织下所有空间，再删除组织（兼容无-r参数的CF CLI）
+          echo "🗑️ 开始清理新加坡区域旧组织..."
+          cf orgs | grep -v "name" | awk '{print $1}' | while read org_name; do
+            echo "处理组织: $org_name"
+            cf target -o "$org_name"  # 切换到目标组织
+            # 先删除该组织下所有空间
+            cf spaces | grep -v "name" | awk '{print $1}' | while read space_name; do
+              echo "删除空间: $space_name"
+              cf delete-space "$space_name" -f
+            done
+            # 再删除组织
+            echo "删除组织: $org_name"
+            cf delete-org "$org_name" -f
+          done
           
+          # 2. 创建新组织和空间
+          echo "🏭 创建新加坡新组织: $NEW_ORG"
+          cf create-org "$NEW_ORG" || {
+            echo "❌ 新加坡新组织创建失败"
+            exit 1
+          }
+          cf target -o "$NEW_ORG"
+          cf create-space -o "$NEW_ORG" ${{ env.TARGET_SPACE }} || true
+          cf target -s ${{ env.TARGET_SPACE }}
+          
+          # 3. 部署应用及变量
+          cf push "$APP_NAME" --docker-image ${{ env.IMAGE }} -m ${{ env.MEMORY }} --health-check-type port
+          cf set-env "$APP_NAME" UUID "${{ secrets.UUID_SG }}"
+          cf set-env "$APP_NAME" ARGO_DOMAIN "${{ secrets.ARGO_DOMAIN_SG }}"
+          cf set-env "$APP_NAME" ARGO_AUTH "${{ secrets.ARGO_AUTH_SG }}"
+          cf set-env "$APP_NAME" SUB_PATH "${{ secrets.SUB_PATH }}"
+          cf set-env "$APP_NAME" NAME "SAP"
+          cf set-env "$APP_NAME" NEZHA_SERVER "${{ secrets.NEZHA_SERVER }}"
+          cf set-env "$APP_NAME" NEZHA_PORT "${{ secrets.NEZHA_PORT }}"
+          cf set-env "$APP_NAME" NEZHA_KEY "${{ secrets.NEZHA_KEY }}"
+          
+          cf restage "$APP_NAME"
+          echo "✅ 新加坡部署完成"
+
+      # 美国区域：删除旧组织（兼容无-r参数版本）-> 创建新组织 -> 部署
+      - name: 部署美国区域
+        id: deploy_us
+        timeout-minutes: 10
+        if: contains(github.event.inputs.regions, 'us')
+        run: |
+          CF_API="https://api.cf.us10-001.hana.ondemand.com"
+          APP_NAME="${{ env.APP_NAME_US }}"
+          NEW_ORG="${{ env.NEW_ORG_NAME }}-us"
+          
+          echo "登录美国API端点..."
+          cf login -a "$CF_API" -u "${{ secrets.EMAIL }}" -p "${{ secrets.PASSWORD }}"
+          
+          # 1. 先删除组织下所有空间，再删除组织（兼容无-r参数的CF CLI）
+          echo "🗑️ 开始清理美国区域旧组织..."
+          cf orgs | grep -v "name" | awk '{print $1}' | while read org_name; do
+            echo "处理组织: $org_name"
+            cf target -o "$org_name"  # 切换到目标组织
+            # 先删除该组织下所有空间
+            cf spaces | grep -v "name" | awk '{print $1}' | while read space_name; do
+              echo "删除空间: $space_name"
+              cf delete-space "$space_name" -f
+            done
+            # 再删除组织
+            echo "删除组织: $org_name"
+            cf delete-org "$org_name" -f
+          done
+          
+          # 2. 创建新组织和空间
+          echo "🏭 创建美国新组织: $NEW_ORG"
+          cf create-org "$NEW_ORG" || {
+            echo "❌ 美国新组织创建失败"
+            exit 1
+          }
+          cf target -o "$NEW_ORG"
+          cf create-space -o "$NEW_ORG" ${{ env.TARGET_SPACE }} || true
+          cf target -s ${{ env.TARGET_SPACE }}
+          
+          # 3. 部署应用及变量
+          cf push "$APP_NAME" --docker-image ${{ env.IMAGE }} -m ${{ env.MEMORY }} --health-check-type port
+          cf set-env "$APP_NAME" UUID "${{ secrets.UUID_US }}"
+          cf set-env "$APP_NAME" ARGO_DOMAIN "${{ secrets.ARGO_DOMAIN_US }}"
+          cf set-env "$APP_NAME" ARGO_AUTH "${{ secrets.ARGO_AUTH_US }}"
+          cf set-env "$APP_NAME" SUB_PATH "${{ secrets.SUB_PATH }}"
+          cf set-env "$APP_NAME" NAME "SAP"
+          cf set-env "$APP_NAME" NEZHA_SERVER "${{ secrets.NEZHA_SERVER }}"
+          cf set-env "$APP_NAME" NEZHA_PORT "${{ secrets.NEZHA_PORT }}"
+          cf set-env "$APP_NAME" NEZHA_KEY "${{ secrets.NEZHA_KEY }}"
+          
+          cf restage "$APP_NAME"
+          echo "✅ 美国部署完成"
+
+      - name: 部署结果汇总
+        run: |
+          if [ "${{ github.event.inputs.regions }}" = "sg,us" ]; then
+            if [ "${{ steps.deploy_sg.outcome }}" = "success" ] && [ "${{ steps.deploy_us.outcome }}" = "success" ]; then
+              echo "🎉 全部区域部署完成"
+            else
+              echo "⚠️ 部分区域部署失败（新加坡：${{ steps.deploy_sg.outcome }}, 美国：${{ steps.deploy_us.outcome }}"
+            fi
+          elif [ "${{ github.event.inputs.regions }}" = "sg" ]; then
+            if [ "${{ steps.deploy_sg.outcome }}" = "success" ]; then
+              echo "🎉 新加坡区域部署完成"
+            else
+              echo "⚠️ 新加坡区域部署失败"
+            fi
+          else
+            if [ "${{ steps.deploy_us.outcome }}" = "success" ]; then
+              echo "🎉 美国区域部署完成"
+            else
+              echo "⚠️ 美国区域部署失败"
+            fi
+          fi
           # 查找匹配组织，无则创建
           TARGET_ORG=$(cf orgs | grep -E "${{ env.ORG_MATCH_PATTERN }}" | head -n 1)
           if [ -z "$TARGET_ORG" ]; then
