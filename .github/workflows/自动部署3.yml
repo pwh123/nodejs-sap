@@ -1,4 +1,4 @@
-name: 自动部署 SAP3
+name: 自动部署 SAP
 on:
   workflow_dispatch:
     inputs:
