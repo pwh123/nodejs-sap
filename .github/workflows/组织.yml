@@ -29,7 +29,7 @@ jobs:
 
       - name: 安装 btp CLI（官方推荐方式）
         run: |
-          curl -s https://raw.githubusercontent.com/SAP-samples/btp-cli-installer/main/install.sh | bash
+          curl -s  https://raw.githubusercontent.com/SAP-samples/btp-cli-installer/main/install.sh | bash
           sudo mv btp /usr/local/bin/
           btp --version
 
