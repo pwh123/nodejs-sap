@@ -1,94 +1,158 @@
-name: Cloud Foundry
-
+name: 自动部署 SAP
 on:
   workflow_dispatch:
+    inputs:
+      environment:
+        description: '选择部署环境'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - staging
+          - production
+      regions:
+        description: '选择部署区域（可多选）'
+        required: true
+        default: 'sg,us'  # 默认全选
+        type: choice
+        options:
+          - sg,us  # 全部区域
+          - sg     # 仅新加坡
+          - us     # 仅美国
 
 env:
-  SUBACCOUNT_ID: "fc63b4dc-2dd2-40fb-92a6-0e82b1b87b45"
-  ENV_INSTANCE_NAME: "cf-trial"
-  BTP_CLI_URL: "https://cpcli.cf.eu10.hana.ondemand.com"
-
-  # 新加坡区域配置
-  REGION_SG: "ap21"
-  CF_API_SG: "https://api.cf.ap21.hana.ondemand.com"
-  ORG_NAME_SG: "adac7863trial_adac7863trial_ext"
-  SPACE_NAME_SG: "dev"
-
-  # 美国区域配置
-  REGION_US: "us10"
-  CF_API_US: "https://api.cf.us10-001.hana.ondemand.com"
-  ORG_NAME_US: "adac7863trial_adac7863trial_ext"
-  SPACE_NAME_US: "dev"
+  IMAGE: ghcr.io/pwh123/nodejs:main
+  MEMORY: 512M
+  APP_NAME_SG: "sgsapfixd"
+  APP_NAME_US: "ussapfixd"
+  TARGET_SPACE: "dev"
+  NEW_ORG_NAME: "sap-deploy-org"  # 新组织名称
 
 jobs:
-  init_cf_environments:
+  deploy_selected_regions:
     runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: 安装 btp CLI（SAP 官方脚本）
-        run: |
-          # 下载最新版BTP CLI（Linux系统）
-          curl -L https://tools.hana.ondemand.com/latest/btp-cli-linux-amd64.tar.gz -o btp-cli.tar.gz
-
-          # 解压到临时目录
-          mkdir -p btp-cli && tar -xzf btp-cli.tar.gz -C btp-cli
-
-          # 移动到系统路径（需要权限）
-          sudo mv btp-cli/btp /usr/local/bin/
-
-          # 验证安装
-          btp --version
-
-      - name: 安装 cf CLI
+      - name: Install CF CLI
         run: |
           wget -q -O - https://packages.cloudfoundry.org/debian/cli.cloudfoundry.org.key | sudo apt-key add -
           echo "deb https://packages.cloudfoundry.org/debian stable main" | sudo tee /etc/apt/sources.list.d/cloudfoundry-cli.list
           sudo apt-get update && sudo apt-get install -y cf8-cli
-          cf --version
 
-      - name: 登录 BTP 并删除旧环境实例
+      # 新加坡区域：删除旧组织 -> 创建新组织 -> 部署
+      - name: 部署新加坡区域
+        id: deploy_sg
+        timeout-minutes: 10
+        continue-on-error: true
+        if: contains(github.event.inputs.regions, 'sg')
         run: |
-          btp login --url "${{ env.BTP_CLI_URL }}" --subdomain "aws-us" --user "${{ secrets.EMAIL }}" --password "${{ secrets.PASSWORD }}"
-          btp target -s "${{ env.SUBACCOUNT_ID }}"
+          CF_API="https://api.cf.ap21.hana.ondemand.com"
+          APP_NAME="${{ env.APP_NAME_SG }}"
+          NEW_ORG="${{ env.NEW_ORG_NAME }}-sg"  # 区域后缀区分组织
+          
+          echo "登录新加坡API端点..."
+          cf login -a "$CF_API" -u "${{ secrets.EMAIL }}" -p "${{ secrets.PASSWORD }}"
+          
+          # 1. 删除所有现有组织（谨慎操作！会清除所有资源）
+          echo "🗑️ 开始删除新加坡区域所有组织..."
+          cf orgs | grep -v "name" | awk '{print $1}' | while read org_name; do
+            echo "删除组织: $org_name"
+            cf delete-org "$org_name" -f -r  # -r 递归删除所有关联资源
+          done
+          
+          # 2. 创建新组织
+          echo "🏭 创建新加坡新组织: $NEW_ORG"
+          cf create-org "$NEW_ORG" || {
+            echo "❌ 新加坡新组织创建失败"
+            exit 1
+          }
+          
+          # 3. 切换到新组织并创建空间
+          cf target -o "$NEW_ORG"
+          cf create-space -o "$NEW_ORG" ${{ env.TARGET_SPACE }} || true
+          cf target -s ${{ env.TARGET_SPACE }}
+          
+          # 4. 部署应用及变量
+          cf push "$APP_NAME" --docker-image ${{ env.IMAGE }} -m ${{ env.MEMORY }} --health-check-type port
+          cf set-env "$APP_NAME" UUID "${{ secrets.UUID_SG }}"
+          cf set-env "$APP_NAME" ARGO_DOMAIN "${{ secrets.ARGO_DOMAIN_SG }}"
+          cf set-env "$APP_NAME" ARGO_AUTH "${{ secrets.ARGO_AUTH_SG }}"
+          cf set-env "$APP_NAME" SUB_PATH "${{ secrets.SUB_PATH }}"
+          cf set-env "$APP_NAME" NAME "SAP"
+          cf set-env "$APP_NAME" NEZHA_SERVER "${{ secrets.NEZHA_SERVER }}"
+          cf set-env "$APP_NAME" NEZHA_PORT "${{ secrets.NEZHA_PORT }}"
+          cf set-env "$APP_NAME" NEZHA_KEY "${{ secrets.NEZHA_KEY }}"
+          
+          cf restage "$APP_NAME"
+          echo "✅ 新加坡部署完成"
 
-          echo "🔍 检查旧环境实例是否存在..."
-          if btp list accounts/environment-instance --subaccount "${{ env.SUBACCOUNT_ID }}" | grep "${{ env.ENV_INSTANCE_NAME }}"; then
-            echo "🧼 删除旧环境实例：${{ env.ENV_INSTANCE_NAME }}"
-            btp delete accounts/environment-instance --subaccount "${{ env.SUBACCOUNT_ID }}" --name "${{ env.ENV_INSTANCE_NAME }}" -f
+      # 美国区域：删除旧组织 -> 创建新组织 -> 部署
+      - name: 部署美国区域
+        id: deploy_us
+        timeout-minutes: 10
+        if: contains(github.event.inputs.regions, 'us')
+        run: |
+          CF_API="https://api.cf.us10-001.hana.ondemand.com"
+          APP_NAME="${{ env.APP_NAME_US }}"
+          NEW_ORG="${{ env.NEW_ORG_NAME }}-us"  # 区域后缀区分组织
+          
+          echo "登录美国API端点..."
+          cf login -a "$CF_API" -u "${{ secrets.EMAIL }}" -p "${{ secrets.PASSWORD }}"
+          
+          # 1. 删除所有现有组织（谨慎操作！会清除所有资源）
+          echo "🗑️ 开始删除美国区域所有组织..."
+          cf orgs | grep -v "name" | awk '{print $1}' | while read org_name; do
+            echo "删除组织: $org_name"
+            cf delete-org "$org_name" -f -r  # -r 递归删除所有关联资源
+          done
+          
+          # 2. 创建新组织
+          echo "🏭 创建美国新组织: $NEW_ORG"
+          cf create-org "$NEW_ORG" || {
+            echo "❌ 美国新组织创建失败"
+            exit 1
+          }
+          
+          # 3. 切换到新组织并创建空间
+          cf target -o "$NEW_ORG"
+          cf create-space -o "$NEW_ORG" ${{ env.TARGET_SPACE }} || true
+          cf target -s ${{ env.TARGET_SPACE }}
+          
+          # 4. 部署应用及变量
+          cf push "$APP_NAME" --docker-image ${{ env.IMAGE }} -m ${{ env.MEMORY }} --health-check-type port
+          cf set-env "$APP_NAME" UUID "${{ secrets.UUID_US }}"
+          cf set-env "$APP_NAME" ARGO_DOMAIN "${{ secrets.ARGO_DOMAIN_US }}"
+          cf set-env "$APP_NAME" ARGO_AUTH "${{ secrets.ARGO_AUTH_US }}"
+          cf set-env "$APP_NAME" SUB_PATH "${{ secrets.SUB_PATH }}"
+          cf set-env "$APP_NAME" NAME "SAP"
+          cf set-env "$APP_NAME" NEZHA_SERVER "${{ secrets.NEZHA_SERVER }}"
+          cf set-env "$APP_NAME" NEZHA_PORT "${{ secrets.NEZHA_PORT }}"
+          cf set-env "$APP_NAME" NEZHA_KEY "${{ secrets.NEZHA_KEY }}"
+          
+          cf restage "$APP_NAME"
+          echo "✅ 美国部署完成"
+
+      - name: 部署结果汇总
+        run: |
+          if [ "${{ github.event.inputs.regions }}" = "sg,us" ]; then
+            if [ "${{ steps.deploy_sg.outcome }}" = "success" ] && [ "${{ steps.deploy_us.outcome }}" = "success" ]; then
+              echo "🎉 全部区域部署完成"
+            else
+              echo "⚠️ 部分区域部署失败（新加坡：${{ steps.deploy_sg.outcome }}, 美国：${{ steps.deploy_us.outcome }}"
+            fi
+          elif [ "${{ github.event.inputs.regions }}" = "sg" ]; then
+            if [ "${{ steps.deploy_sg.outcome }}" = "success" ]; then
+              echo "🎉 新加坡区域部署完成"
+            else
+              echo "⚠️ 新加坡区域部署失败"
+            fi
           else
-            echo "✅ 未发现旧环境实例，跳过删除"
+            if [ "${{ steps.deploy_us.outcome }}" = "success" ]; then
+              echo "🎉 美国区域部署完成"
+            else
+              echo "⚠️ 美国区域部署失败"
+            fi
           fi
-
-      - name: 创建新的 Cloud Foundry 环境实例（新加坡区域）
-        run: |
-          btp create accounts/environment-instance \
-            --subaccount "${{ env.SUBACCOUNT_ID }}" \
-            --environment cloudfoundry \
-            --service cloudfoundry \
-            --plan free \
-            --parameters "{ \"region\": \"${{ env.REGION_SG }}\" }"
-
-      - name: 登录 CF 并初始化新加坡区域
-        run: |
-          cf login -a "${{ env.CF_API_SG }}" -u "${{ secrets.EMAIL }}" -p "${{ secrets.PASSWORD }}"
-          cf create-space "${{ env.SPACE_NAME_SG }}" -o "${{ env.ORG_NAME_SG }}" || echo "⚠️ 空间已存在或创建失败"
-          cf target -o "${{ env.ORG_NAME_SG }}" -s "${{ env.SPACE_NAME_SG }}"
-          echo "✅ 新加坡区域初始化完成"
-
-      - name: 创建新的 Cloud Foundry 环境实例（美国区域）
-        run: |
-          btp create accounts/environment-instance \
-            --subaccount "${{ env.SUBACCOUNT_ID }}" \
-            --environment cloudfoundry \
-            --service cloudfoundry \
-            --plan free \
-            --parameters "{ \"region\": \"${{ env.REGION_US }}\" }"
-
-      - name: 登录 CF 并初始化美国区域
-        run: |
-          cf login -a "${{ env.CF_API_US }}" -u "${{ secrets.EMAIL }}" -p "${{ secrets.PASSWORD }}"
-          cf create-space "${{ env.SPACE_NAME_US }}" -o "${{ env.ORG_NAME_US }}" || echo "⚠️ 空间已存在或创建失败"
-          cf target -o "${{ env.ORG_NAME_US }}" -s "${{ env.SPACE_NAME_US }}"
-          echo "✅ 美国区域初始化完成"
