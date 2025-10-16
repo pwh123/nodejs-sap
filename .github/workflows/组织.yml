@@ -1,0 +1,86 @@
+name: Cloud Foundry
+
+on:
+  workflow_dispatch:
+
+env:
+  SUBACCOUNT_ID: "fc63b4dc-2dd2-40fb-92a6-0e82b1b87b45"
+  ENV_INSTANCE_NAME: "cf-trial"
+  BTP_CLI_URL: "https://cpcli.cf.eu10.hana.ondemand.com"
+
+  # 新加坡区域配置
+  REGION_SG: "ap21"
+  CF_API_SG: "https://api.cf.ap21.hana.ondemand.com"
+  ORG_NAME_SG: "adac7863trial_adac7863trial_ext"
+  SPACE_NAME_SG: "dev"
+
+  # 美国区域配置
+  REGION_US: "us10"
+  CF_API_US: "https://api.cf.us10-001.hana.ondemand.com"
+  ORG_NAME_US: "adac7863trial_adac7863trial_ext"
+  SPACE_NAME_US: "dev"
+
+jobs:
+  init_cf_environments:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 安装 btp CLI（官方推荐方式）
+        run: |
+          curl -s https://raw.githubusercontent.com/SAP-samples/btp-cli-installer/main/install.sh | bash
+          sudo mv btp /usr/local/bin/
+          btp --version
+
+      - name: 安装 cf CLI
+        run: |
+          wget -q -O - https://packages.cloudfoundry.org/debian/cli.cloudfoundry.org.key | sudo apt-key add -
+          echo "deb https://packages.cloudfoundry.org/debian stable main" | sudo tee /etc/apt/sources.list.d/cloudfoundry-cli.list
+          sudo apt-get update && sudo apt-get install -y cf8-cli
+          cf --version
+
+      - name: 登录 BTP 并删除旧环境实例
+        run: |
+          btp login --url "${{ env.BTP_CLI_URL }}" --subdomain "aws-us" --user "${{ secrets.EMAIL }}" --password "${{ secrets.PASSWORD }}"
+          btp target -s "${{ env.SUBACCOUNT_ID }}"
+
+          echo "🔍 检查旧环境实例是否存在..."
+          if btp list accounts/environment-instance --subaccount "${{ env.SUBACCOUNT_ID }}" | grep "${{ env.ENV_INSTANCE_NAME }}"; then
+            echo "🧼 删除旧环境实例：${{ env.ENV_INSTANCE_NAME }}"
+            btp delete accounts/environment-instance --subaccount "${{ env.SUBACCOUNT_ID }}" --name "${{ env.ENV_INSTANCE_NAME }}" -f
+          else
+            echo "✅ 未发现旧环境实例，跳过删除"
+          fi
+
+      - name: 创建新的 Cloud Foundry 环境实例（新加坡区域）
+        run: |
+          btp create accounts/environment-instance \
+            --subaccount "${{ env.SUBACCOUNT_ID }}" \
+            --environment cloudfoundry \
+            --service cloudfoundry \
+            --plan free \
+            --parameters "{ \"region\": \"${{ env.REGION_SG }}\" }"
+
+      - name: 登录 CF 并初始化新加坡区域
+        run: |
+          cf login -a "${{ env.CF_API_SG }}" -u "${{ secrets.EMAIL }}" -p "${{ secrets.PASSWORD }}"
+          cf create-space "${{ env.SPACE_NAME_SG }}" -o "${{ env.ORG_NAME_SG }}" || echo "⚠️ 空间已存在或创建失败"
+          cf target -o "${{ env.ORG_NAME_SG }}" -s "${{ env.SPACE_NAME_SG }}"
+          echo "✅ 新加坡区域初始化完成"
+
+      - name: 创建新的 Cloud Foundry 环境实例（美国区域）
+        run: |
+          btp create accounts/environment-instance \
+            --subaccount "${{ env.SUBACCOUNT_ID }}" \
+            --environment cloudfoundry \
+            --service cloudfoundry \
+            --plan free \
+            --parameters "{ \"region\": \"${{ env.REGION_US }}\" }"
+
+      - name: 登录 CF 并初始化美国区域
+        run: |
+          cf login -a "${{ env.CF_API_US }}" -u "${{ secrets.EMAIL }}" -p "${{ secrets.PASSWORD }}"
+          cf create-space "${{ env.SPACE_NAME_US }}" -o "${{ env.ORG_NAME_US }}" || echo "⚠️ 空间已存在或创建失败"
+          cf target -o "${{ env.ORG_NAME_US }}" -s "${{ env.SPACE_NAME_US }}"
+          echo "✅ 美国区域初始化完成"
