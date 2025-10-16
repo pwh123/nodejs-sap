@@ -29,8 +29,16 @@ jobs:
 
       - name: 安装 btp CLI（SAP 官方脚本）
         run: |
-          curl https://cli.btp.cloud.sap/btpcli-install.sh | bash
-          sudo mv ~/.btp/btp /usr/local/bin/
+          # 下载最新版BTP CLI（Linux系统）
+          curl -L https://tools.hana.ondemand.com/latest/btp-cli-linux-amd64.tar.gz -o btp-cli.tar.gz
+
+          # 解压到临时目录
+          mkdir -p btp-cli && tar -xzf btp-cli.tar.gz -C btp-cli
+
+          # 移动到系统路径（需要权限）
+          sudo mv btp-cli/btp /usr/local/bin/
+
+          # 验证安装
           btp --version
 
       - name: 安装 cf CLI
