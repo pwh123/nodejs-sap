@@ -27,11 +27,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 安装 btp CLI（直接下载可执行文件）
+      - name: 安装 btp CLI（SAP 官方脚本）
         run: |
-          curl -L https://github.com/SAP-samples/btp-cli-installer/releases/latest/download/btp-linux-amd64 -o btp
-          chmod +x btp
-          sudo mv btp /usr/local/bin/
+          curl https://cli.btp.cloud.sap/btpcli-install.sh | bash
+          sudo mv ~/.btp/btp /usr/local/bin/
           btp --version
 
       - name: 安装 cf CLI
