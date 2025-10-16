@@ -1,0 +1,118 @@
+name: 自动部署 SAP3
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: '选择部署环境'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  IMAGE: ghcr.io/eooce/nodejs-argo:latest
+  MEMORY: 2048M
+  BASE_PREFIX_SG: "sgsapfixd"
+  BASE_PREFIX_US: "ussapfixd"
+  # 直接使用列表中的组织名
+  TARGET_ORG: "adac7863trial_adac7863trial_ext"
+
+jobs:
+  deploy_all_regions:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install CF CLI
+        run: |
+          wget -q -O - https://packages.cloudfoundry.org/debian/cli.cloudfoundry.org.key | sudo apt-key add -
+          echo "deb https://packages.cloudfoundry.org/debian stable main" | sudo tee /etc/apt/sources.list.d/cloudfoundry-cli.list
+          sudo apt-get update
+          sudo apt-get install -y cf8-cli
+
+      # 新加坡区域部署
+      - name: 部署新加坡区域
+        run: |
+          CF_API="https://api.cf.ap21.hana.ondemand.com"
+          APP_NAME="${{ env.BASE_PREFIX_SG }}"
+          TARGET_SPACE="${{ secrets.SG_SPACE }}"
+          
+          echo "开始部署新加坡区域：$APP_NAME"
+          echo "使用组织：${{ env.TARGET_ORG }}"
+          
+          # 登录并直接指定组织
+          if ! cf login -a "$CF_API" -u "${{ secrets.EMAIL }}" -p "${{ secrets.PASSWORD }}" -o "${{ env.TARGET_ORG }}"; then
+            echo "❌ 登录失败，请检查凭据或组织名"
+            exit 1
+          fi
+          
+          # 列出可访问组织（供参考）
+          echo "📋 当前可访问的组织列表："
+          cf orgs
+          
+          # 检查并创建空间
+          if ! cf space "$TARGET_SPACE" >/dev/null 2>&1; then
+            echo "创建空间 $TARGET_SPACE..."
+            cf create-space "$TARGET_SPACE" || { echo "❌ 空间创建失败"; exit 1; }
+          fi
+          cf target -s "$TARGET_SPACE"
+          
+          # 部署应用
+          cf push "$APP_NAME" --docker-image ${{ env.IMAGE }} -m ${{ env.MEMORY }} --health-check-type port
+          
+          # 设置环境变量
+          cf set-env "$APP_NAME" NAME "SAP"
+          cf set-env "$APP_NAME" NEZHA_SERVER "${{ secrets.NEZHA_SERVER }}"
+          cf set-env "$APP_NAME" NEZHA_PORT "${{ secrets.NEZHA_PORT }}"
+          cf set-env "$APP_NAME" NEZHA_KEY "${{ secrets.NEZHA_KEY }}"
+          cf set-env "$APP_NAME" UUID "${{ secrets.UUID_SG }}"
+          cf set-env "$APP_NAME" ARGO_DOMAIN "${{ secrets.ARGO_DOMAIN_SG }}"
+          
+          cf restage "$APP_NAME"
+          echo "✅ 新加坡部署完成"
+
+      # 美国区域部署
+      - name: 部署美国区域
+        run: |
+          CF_API="https://api.cf.us10-001.hana.ondemand.com"
+          APP_NAME="${{ env.BASE_PREFIX_US }}"
+          TARGET_SPACE="${{ secrets.US_SPACE }}"
+          
+          echo "开始部署美国区域：$APP_NAME"
+          echo "使用组织：${{ env.TARGET_ORG }}"
+          
+          # 登录并直接指定组织
+          if ! cf login -a "$CF_API" -u "${{ secrets.EMAIL }}" -p "${{ secrets.PASSWORD }}" -o "${{ env.TARGET_ORG }}"; then
+            echo "❌ 登录失败，请检查凭据或组织名"
+            exit 1
+          fi
+          
+          # 列出可访问组织（供参考）
+          echo "📋 当前可访问的组织列表："
+          cf orgs
+          
+          # 检查并创建空间
+          if ! cf space "$TARGET_SPACE" >/dev/null 2>&1; then
+            echo "创建空间 $TARGET_SPACE..."
+            cf create-space "$TARGET_SPACE" || { echo "❌ 空间创建失败"; exit 1; }
+          fi
+          cf target -s "$TARGET_SPACE"
+          
+          # 部署应用
+          cf push "$APP_NAME" --docker-image ${{ env.IMAGE }} -m ${{ env.MEMORY }} --health-check-type port
+          
+          # 设置环境变量
+          cf set-env "$APP_NAME" NAME "SAP"
+          cf set-env "$APP_NAME" NEZHA_SERVER "${{ secrets.NEZHA_SERVER }}"
+          cf set-env "$APP_NAME" NEZHA_PORT "${{ secrets.NEZHA_PORT }}"
+          cf set-env "$APP_NAME" NEZHA_KEY "${{ secrets.NEZHA_KEY }}"
+          cf set-env "$APP_NAME" UUID "${{ secrets.UUID_US }}"
+          cf set-env "$APP_NAME" ARGO_DOMAIN "${{ secrets.ARGO_DOMAIN_US }}"
+          
+          cf restage "$APP_NAME"
+          echo "✅ 美国部署完成"
